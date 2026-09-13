@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>ふれあいの森AI GPU TEST</title>
+
+</head>
+
+<body>
+
+<h1>🌲 WebGPUテスト</h1>
+
+<p id="status">
+確認しています……
+</p>
+
+<script>
+
+async function testGPU() {
+
+    const status =
+        document.getElementById("status");
+
+    if (!navigator.gpu) {
+
+        status.textContent =
+            "❌ WebGPUを利用できません。";
+
+        return;
+
+    }
+
+    const adapter =
+        await navigator.gpu.requestAdapter();
+
+    if (!adapter) {
+
+        status.textContent =
+            "❌ GPUアダプターを取得できません。";
+
+        return;
+
+    }
+
+    const device =
+        await adapter.requestDevice();
+
+    if (!device) {
+
+        status.textContent =
+            "❌ GPUデバイスを取得できません。";
+
+        return;
+
+    }
+
+    status.textContent =
+        "✅ WebGPUが利用できます！";
+
+}
+
+testGPU();
+
+</script>
+
+</body>
+
+</html>
