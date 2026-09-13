@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>ふれあいの森AI</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    background: #f3f0ea;
+    color: #333;
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Hiragino Kaku Gothic ProN",
+        sans-serif;
+}
+
+h1 {
+    margin-bottom: 5px;
+}
+
+.description {
+    color: #666;
+    font-size: 14px;
+}
+
+.panel {
+    background: white;
+    border-radius: 16px;
+    padding: 18px;
+    margin-top: 16px;
+    box-shadow:
+        0 3px 15px rgba(0,0,0,0.08);
+}
+
+button {
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin: 5px 0;
+    font-size: 16px;
+    background: #5b7185;
+    color: white;
+}
+
+button:active {
+    transform: scale(0.97);
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    font-size: 16px;
+}
+
+#canvas {
+    width: 100%;
+    max-width: 320px;
+    image-rendering: pixelated;
+    border-radius: 12px;
+    background: white;
+    display: block;
+    margin: 15px auto;
+}
+
+.status {
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 8px;
+    font-size: 13px;
+    white-space: pre-wrap;
+}
+
+</style>
+</head>
+
+<body>
+
+<h1>🌲 ふれあいの森AI</h1>
+
+<div class="description">
+自作ニューラルネットワークによる画像生成実験
+</div>
+
+<div class="panel">
+
+<h2>① 学習</h2>
+
+<p>
+まず、AI自身が簡単な「ふれあいの森風アイコン」を
+学習します。
+</p>
+
+<button onclick="startTraining()">
+学習開始
+</button>
+
+</div>
+
+
+<div class="panel">
+
+<h2>② 生成</h2>
+
+<input
+    id="prompt"
+    value="きりかぶが木のおもちゃを作っている"
+>
+
+<br><br>
+
+<button onclick="generateImage()">
+画像を生成
+</button>
+
+<canvas
+    id="canvas"
+    width="32"
+    height="32">
+</canvas>
+
+</div>
+
+
+<div class="panel">
+
+<h2>状態</h2>
+
+<div id="status" class="status">
+まだ学習していません。
+</div>
+
+</div>
+
+
+<script>
+
+/*
+==================================================
+ふれあいの森AI
+自作ミニ画像生成ニューラルネットワーク
+==================================================
+
+外部AI API
+→ 使用しない
+
+既存生成モデル
+→ 使用しない
+
+ニューラルネットワーク
+→ 自作
+
+学習処理
+→ 自作
+
+画像生成
+→ 自作
+==================================================
+*/
+
+
+/* ================================================
+   基本設定
+================================================ */
+
+const IMAGE_SIZE = 16;
+
+const CHANNELS = 3;
+
+const INPUT_SIZE = 12;
+
+const HIDDEN_SIZE = 48;
+
+const OUTPUT_SIZE =
+    IMAGE_SIZE *
+    IMAGE_SIZE *
+    CHANNELS;
+
+
+/* ================================================
+   ふれあいの森の世界データ
+================================================ */
+
+const WORLD = {
+
+    residents: {
+
+        punimaru: {
+            name: "ぷにまる",
+            motif: "別の惑星から来た生き物",
+            personality: "やわらかく親しみやすい",
+            home: "ふれあいの森"
+        },
+
+        kirikabu: {
+            name: "きりかぶ",
+            motif: "切り株",
+            personality: "ものづくりが好き",
+            home: "ふれあいの森"
+        },
+
+        tart: {
+            name: "たると",
+            motif: "タルトケーキ",
+            personality: "優しい。貯金が好き",
+            occupation: "大学生",
+            home: "木造集合住宅"
+        },
+
+        oke: {
+            name: "桶さん",
+            motif: "桶",
+            occupation: "お風呂屋さん"
+        }
+
+    },
+
+    buildings: {
+
+        woodenApartment: {
+            name: "木造集合住宅",
+            material: "木",
+            floors: 3
+        },
+
+        school: {
+            name: "学校",
+            type: "学校"
+        },
+
+        bathhouse: {
+            name: "お風呂屋さん",
+            type: "銭湯"
+        }
+
+    }
+
+};
+
+
+/* ================================================
+   数学関数
+================================================ */
+
+function randomWeight() {
+
+    return (Math.random() * 2 - 1) * 0.1;
+
+}
+
+
+function sigmoid(x) {
+
+    return 1 / (1 + Math.exp(-x));
+
+}
+
+
+function sigmoidDerivative(x) {
+
+    const s = sigmoid(x);
+
+    return s * (1 - s);
+
+}
+
+
+function tanh(x) {
+
+    return Math.tanh(x);
+
+}
+
+
+function tanhDerivative(x) {
+
+    const t = Math.tanh(x);
+
+    return 1 - t * t;
+
+}
+
+
+/* ================================================
+   行列
+================================================ */
+
+function createMatrix(rows, cols) {
+
+    const matrix = [];
+
+    for (let i = 0; i < rows; i++) {
+
+        const row = [];
+
+        for (let j = 0; j < cols; j++) {
+
+            row.push(randomWeight());
+
+        }
+
+        matrix.push(row);
+
+    }
+
+    return matrix;
+
+}
+
+
+function createVector(size) {
+
+    const vector = [];
+
+    for (let i = 0; i < size; i++) {
+
+        vector.push(0);
+
+    }
+
+    return vector;
+
+}
+
+
+/* ================================================
+   自作ニューラルネットワーク
+================================================ */
+
+class Generator {
+
+    constructor() {
+
+        /*
+        入力
+        ↓
+        隠れ層
+        ↓
+        出力画像
+        */
+
+        this.W1 =
+            createMatrix(
+                HIDDEN_SIZE,
+                INPUT_SIZE
+            );
+
+        this.b1 =
+            createVector(
+                HIDDEN_SIZE
+            );
+
+        this.W2 =
+            createMatrix(
+                OUTPUT_SIZE,
+                HIDDEN_SIZE
+            );
+
+        this.b2 =
+            createVector(
+                OUTPUT_SIZE
+            );
+
+    }
+
+
+    forward(input) {
+
+        const hidden = [];
+
+        const hiddenRaw = [];
+
+        /*
+        第1層
+        */
+
+        for (
+            let i = 0;
+            i < HIDDEN_SIZE;
+            i++
+        ) {
+
+            let sum = this.b1[i];
+
+            for (
+                let j = 0;
+                j < INPUT_SIZE;
+                j++
+            ) {
+
+                sum +=
+                    this.W1[i][j] *
+                    input[j];
+
+            }
+
+            hiddenRaw[i] = sum;
+
+            hidden[i] =
+                Math.tanh(sum);
+
+        }
+
+
+        /*
+        第2層
+        */
+
+        const output = [];
+
+        const outputRaw = [];
+
+        for (
+            let i = 0;
+            i < OUTPUT_SIZE;
+            i++
+        ) {
+
+            let sum = this.b2[i];
+
+            for (
+                let j = 0;
+                j < HIDDEN_SIZE;
+                j++
+            ) {
+
+                sum +=
+                    this.W2[i][j] *
+                    hidden[j];
+
+            }
+
+            outputRaw[i] = sum;
+
+            output[i] =
+                sigmoid(sum);
+
+        }
+
+
+        return {
+            hidden,
+            hiddenRaw,
+            output,
+            outputRaw
+        };
+
+    }
+
+
+    train(input, target, learningRate) {
+
+        const result =
+            this.forward(input);
+
+        const hidden =
+            result.hidden;
+
+        const hiddenRaw =
+            result.hiddenRaw;
+
+        const output =
+            result.output;
+
+        const outputRaw =
+            result.outputRaw;
+
+
+        /*
+        出力層の誤差
+        */
+
+        const outputError =
+            createVector(
+                OUTPUT_SIZE
+            );
+
+
+        for (
+            let i = 0;
+            i < OUTPUT_SIZE;
+            i++
+        ) {
+
+            outputError[i] =
+                output[i] -
+                target[i];
+
+        }
+
+
+        /*
+        W2更新
+        */
+
+        for (
+            let i = 0;
+            i < OUTPUT_SIZE;
+            i++
+        ) {
+
+            for (
+                let j = 0;
+                j < HIDDEN_SIZE;
+                j++
+            ) {
+
+                this.W2[i][j]
+                    -=
+                    learningRate *
+                    outputError[i] *
+                    hidden[j];
+
+            }
+
+            this.b2[i]
+                -=
+                learningRate *
+                outputError[i];
+
+        }
+
+
+        /*
+        隠れ層へ誤差を戻す
+        */
+
+        const hiddenError =
+            createVector(
+                HIDDEN_SIZE
+            );
+
+
+        for (
+            let j = 0;
+            j < HIDDEN_SIZE;
+            j++
+        ) {
+
+            let error = 0;
+
+            for (
+                let i = 0;
+                i < OUTPUT_SIZE;
+                i++
+            ) {
+
+                error +=
+                    outputError[i] *
+                    this.W2[i][j];
+
+            }
+
+            hiddenError[j] =
+                error *
+                tanhDerivative(
+                    hiddenRaw[j]
+                );
+
+        }
+
+
+        /*
+        W1更新
+        */
+
+        for (
+            let j = 0;
+            j < HIDDEN_SIZE;
+            j++
+        ) {
+
+            for (
+                let k = 0;
+                k < INPUT_SIZE;
+                k++
+            ) {
+
+                this.W1[j][k]
+                    -=
+                    learningRate *
+                    hiddenError[j] *
+                    input[k];
+
+            }
+
+            this.b1[j]
+                -=
+                learningRate *
+                hiddenError[j];
+
+        }
+
+
+        /*
+        損失
+        */
+
+        let loss = 0;
+
+        for (
+            let i = 0;
+            i < OUTPUT_SIZE;
+            i++
+        ) {
+
+            const diff =
+                output[i] -
+                target[i];
+
+            loss +=
+                diff * diff;
+
+        }
+
+        loss /= OUTPUT_SIZE;
+
+        return loss;
+
+    }
+
+}
+
+
+/* ================================================
+   モデル
+================================================ */
+
+let model = null;
+
+
+/* ================================================
+   学習データ作成
+================================================ */
+
+/*
+0 = ぷにまる系
+1 = きりかぶ系
+2 = たると系
+3 = 家
+*/
+
+function createTrainingImage(type) {
+
+    const size = IMAGE_SIZE;
+
+    const data =
+        new Array(
+            OUTPUT_SIZE
+        ).fill(0.05);
+
+
+    function pixel(x, y, r, g, b) {
+
+        if (
+            x < 0 ||
+            y < 0 ||
+            x >= size ||
+            y >= size
+        ) {
+            return;
+        }
+
+        const index =
+            (y * size + x) * 3;
+
+        data[index] = r;
+        data[index + 1] = g;
+        data[index + 2] = b;
+
+    }
+
+
+    /*
+    背景
+    */
+
+    for (
+        let y = 0;
+        y < size;
+        y++
+    ) {
+
+        for (
+            let x = 0;
+            x < size;
+            x++
+        ) {
+
+            pixel(
+                x,
+                y,
+                0.92,
+                0.90,
+                0.84
+            );
+
+        }
+
+    }
+
+
+    /*
+    ぷにまる
+    */
+
+    if (type === 0) {
+
+        for (
+            let y = 4;
+            y < 13;
+            y++
+        ) {
+
+            for (
+                let x = 4;
+                x < 12;
+                x++
+            ) {
+
+                const dx =
+                    x - 7.5;
+
+                const dy =
+                    y - 8;
+
+                if (
+                    dx * dx +
+                    dy * dy
+                    < 20
+                ) {
+
+                    pixel(
+                        x,
+                        y,
+                        0.65,
+                        0.82,
+                        0.95
+                    );
+
+                }
+
+            }
+
+        }
+
+
+        /*
+        目
+        */
+
+        pixel(
+            6,
+            7,
+            0.1,
+            0.1,
+            0.1
+        );
+
+        pixel(
+            9,
+            7,
+            0.1,
+            0.1,
+            0.1
+        );
+
+    }
+
+
+    /*
+    きりかぶ
+    */
+
+    if (type === 1) {
+
+        for (
+            let y = 5;
+            y < 13;
+            y++
+        ) {
+
+            for (
+                let x = 4;
+                x < 12;
+                x++
+            ) {
+
+                pixel(
+                    x,
+                    y,
+                    0.45,
+                    0.25,
+                    0.12
+                );
+
+            }
+
+        }
+
+
+        /*
+        木の年輪
+        */
+
+        pixel(
+            6,
+            6,
+            0.75,
+            0.55,
+            0.25
+        );
+
+        pixel(
+            7,
+            6,
+            0.75,
+            0.55,
+            0.25
+        );
+
+        pixel(
+            6,
+            7,
+            0.75,
+            0.55,
+            0.25
+        );
+
+        pixel(
+            7,
+            7,
+            0.75,
+            0.55,
+            0.25
+        );
+
+    }
+
+
+    /*
+    たると
+    */
+
+    if (type === 2) {
+
+        for (
+            let y = 6;
+            y < 12;
+            y++
+        ) {
+
+            for (
+                let x = 4;
+                x < 12;
+                x++
+            ) {
+
+                pixel(
+                    x,
+                    y,
+                    0.9,
+                    0.65,
+                    0.25
+                );
+
+            }
+
+        }
+
+
+        /*
+        クリーム
+        */
+
+        for (
+            let x = 5;
+            x < 11;
+            x++
+        ) {
+
+            pixel(
+                x,
+                5,
+                0.95,
+                0.95,
+                0.9
+            );
+
+        }
+
+    }
+
+
+    /*
+    家
+    */
+
+    if (type === 3) {
+
+        /*
+        屋根
+        */
+
+        for (
+            let y = 4;
+            y < 8;
+            y++
+        ) {
+
+            for (
+                let x = y - 1;
+                x < size - y + 1;
+                x++
+            ) {
+
+                pixel(
+                    x,
+                    y,
+                    0.35,
+                    0.22,
+                    0.12
+                );
+
+            }
+
+        }
+
+
+        /*
+        建物
+        */
+
+        for (
+            let y = 8;
+            y < 14;
+            y++
+        ) {
+
+            for (
+                let x = 4;
+                x < 12;
+                x++
+            ) {
+
+                pixel(
+                    x,
+                    y,
+                    0.70,
+                    0.52,
+                    0.30
+                );
+
+            }
+
+        }
+
+
+        /*
+        ドア
+        */
+
+        for (
+            let y = 10;
+            y < 14;
+            y++
+        ) {
+
+            for (
+                let x = 7;
+                x < 9;
+                x++
+            ) {
+
+                pixel(
+                    x,
+                    y,
+                    0.20,
+                    0.12,
+                    0.08
+                );
+
+            }
+
+        }
+
+    }
+
+
+    return data;
+
+}
+
+
+/* ================================================
+   入力ベクトル
+================================================ */
+
+function createInput(type) {
+
+    const input =
+        createVector(
+            INPUT_SIZE
+        );
+
+
+    /*
+    ランダムノイズ
+    */
+
+    for (
+        let i = 0;
+        i < 8;
+        i++
+    ) {
+
+        input[i] =
+            Math.random() * 2 - 1;
+
+    }
+
+
+    /*
+    種類
+    */
+
+    input[8] =
+        type === 0 ? 1 : 0;
+
+    input[9] =
+        type === 1 ? 1 : 0;
+
+    input[10] =
+        type === 2 ? 1 : 0;
+
+    input[11] =
+        type === 3 ? 1 : 0;
+
+
+    return input;
+
+}
+
+
+/* ================================================
+   学習
+================================================ */
+
+async function startTraining() {
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    status.textContent =
+        "モデルを作成しています……";
+
+
+    model =
+        new Generator();
+
+
+    const epochs = 100;
+
+    const learningRate = 0.03;
+
+
+    for (
+        let epoch = 0;
+        epoch < epochs;
+        epoch++
+    ) {
+
+        let totalLoss = 0;
+
+
+        /*
+        4種類の画像を学習
+        */
+
+        for (
+            let type = 0;
+            type < 4;
+            type++
+        ) {
+
+            const target =
+                createTrainingImage(
+                    type
+                );
+
+
+            /*
+            同じ種類を複数回学習
+            */
+
+            for (
+                let n = 0;
+                n < 3;
+                n++
+            ) {
+
+                const input =
+                    createInput(type);
+
+
+                const loss =
+                    model.train(
+                        input,
+                        target,
+                        learningRate
+                    );
+
+
+                totalLoss += loss;
+
+            }
+
+        }
+
+
+        if (
+            epoch % 10 === 0
+        ) {
+
+            status.textContent =
+                "学習中\n" +
+                "Epoch: " +
+                epoch +
+                " / " +
+                epochs +
+                "\nLoss: " +
+                totalLoss.toFixed(5);
+
+
+            /*
+            ブラウザに処理時間を渡す
+            */
+
+            await new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        0
+                    )
+            );
+
+        }
+
+    }
+
+
+    status.textContent =
+        "学習完了！\n\n" +
+        "自作ニューラルネットワークが" +
+        "学習しました。";
+
+
+}
+
+
+/* ================================================
+   文章から種類を判断
+================================================ */
+
+function understandPrompt(text) {
+
+    text =
+        text.toLowerCase();
+
+
+    if (
+        text.includes("きりかぶ") ||
+        text.includes("木") ||
+        text.includes("おもちゃ")
+    ) {
+
+        return 1;
+
+    }
+
+
+    if (
+        text.includes("たると")
+    ) {
+
+        return 2;
+
+    }
+
+
+    if (
+        text.includes("家") ||
+        text.includes("部屋") ||
+        text.includes("住宅")
+    ) {
+
+        return 3;
+
+    }
+
+
+    if (
+        text.includes("ぷにまる")
+    ) {
+
+        return 0;
+
+    }
+
+
+    /*
+    分からない場合
+    */
+
+    return 0;
+
+}
+
+
+/* ================================================
+   画像表示
+================================================ */
+
+function drawImage(data) {
+
+    const canvas =
+        document.getElementById(
+            "canvas"
+        );
+
+    const ctx =
+        canvas.getContext(
+            "2d"
+        );
+
+
+    const image =
+        ctx.createImageData(
+            IMAGE_SIZE,
+            IMAGE_SIZE
+        );
+
+
+    for (
+        let i = 0;
+        i < data.length;
+        i++
+    ) {
+
+        image.data[i * 4] =
+            Math.floor(
+                data[i * 3] *
+                255
+            );
+
+        image.data[i * 4 + 1] =
+            Math.floor(
+                data[i * 3 + 1] *
+                255
+            );
+
+        image.data[i * 4 + 2] =
+            Math.floor(
+                data[i * 3 + 2] *
+                255
+            );
+
+        image.data[i * 4 + 3] =
+            255;
+
+    }
+
+
+    ctx.putImageData(
+        image,
+        0,
+        0
+    );
+
+}
+
+
+/* ================================================
+   画像生成
+================================================ */
+
+function generateImage() {
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    if (!model) {
+
+        status.textContent =
+            "先に「学習開始」を押してください。";
+
+        return;
+
+    }
+
+
+    const prompt =
+        document.getElementById(
+            "prompt"
+        ).value;
+
+
+    const type =
+        understandPrompt(
+            prompt
+        );
+
+
+    const input =
+        createInput(type);
+
+
+    const result =
+        model.forward(
+            input
+        );
+
+
+    drawImage(
+        result.output
+    );
+
+
+    status.textContent =
+        "生成しました。\n\n" +
+        "入力：" +
+        prompt +
+        "\n" +
+        "判定カテゴリ：" +
+        type;
+
+}
+
+
+</script>
+
+</body>
+</html>
